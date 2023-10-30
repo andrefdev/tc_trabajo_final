@@ -1,44 +1,40 @@
 import pandas as pd
+import numpy as np
 from surprise import Dataset, Reader
 from surprise.model_selection import train_test_split
+from surprise import accuracy
 from surprise.prediction_algorithms.knns import KNNWithZScore
 
-class RecommendationSystem:
-    def _init_(self):
-        self.model = None
+# DataFrame con datos de Amazon (Reemplazar datos)
+data = pd.DataFrame({
+    'user_id': [1, 2, 3, 4, 5],
+    'product_id': [101, 102, 103, 104, 105],
+    'category': ['Electronics', 'Books', 'Products', 'Cleaning', 'Clothing'],
+    'price': [100, 20, 120, 25, 50],
+    'rating': [5, 4, 3, 4, 5],
+    'reviews': [10, 5, 12, 7, 8]
+})
 
-    def build_recommendation_model(self, user_data):
-        reader = Reader(rating_scale=(1, 5))
-        data = Dataset.load_from_df(user_data[['user_id', 'product_id', 'rating'], reader])
-        trainset, testset = train_test_split(data, test_size=0.25)
-        
-        self.model = KNNWithZScore(sim_options={'name': 'cosine', 'user_based': False})
-        self.model.fit(trainset)
+reader = Reader(rating_scale=(1, 5))
+data = Dataset.load_from_df(data[['user_id', 'product_id', 'rating']], reader)
+trainset, testset = train_test_split(data, test_size=0.25)
 
-    def get_recommendations(self, user_data_list, user_id, num_recommendations=10):
-        user_data = pd.DataFrame(user_data_list, columns=['user_id', 'product_id', 'rating'])
-        self.build_recommendation_model(user_data)
-        
-        user_products = user_data[user_data['user_id'] == user_id]['product_id']
-        unrated_products = user_data[~user_data['product_id'].isin(user_products)]
-        user_predictions = [self.model.predict(user_id, product_id) for product_id in unrated_products['product_id']]
-        top_n = sorted(user_predictions, key=lambda x: x.est, reverse=True)
-        recommendations = [{'Product ID': prediction.iid, 'Estimated Rating': prediction.est} for prediction in top_n[:num_recommendations]]
-        
-        return recommendations
+model = KNNWithZScore(sim_options={'name': 'cosine', 'user_based': False})
+model.fit(trainset)
 
-# Ejemplo de uso
-user_data_list = [
-    [1, 101, 5],
-    [1, 102, 4],
-    [1, 103, 3],
-    [2, 104, 4],
-    [2, 105, 5]
-]
+predictions = model.test(testset)
 
-recommendation_system = RecommendationSystem()
+rmse = accuracy.rmse(predictions)
+print(f'RMSE: {rmse}')
+
 user_id = 1
-recommendations = recommendation_system.get_recommendations(user_data_list, user_id)
-print('Recomendaciones para el usuario:')
-for recommendation in recommendations:
-    print(f'Producto ID: {recommendation["Product ID"]}, Calificación Estimada: {recommendation["Estimated Rating"]}')
+user_products = data[data['user_id'] == user_id]['product_id']
+unrated_products = data[~data['product_id'].isin(user_products)]
+user_predictions = [model.predict(user_id, product_id) for product_id in unrated_products['product_id']]
+
+top_n = sorted(user_predictions, key=lambda x: x.est, reverse=True)
+
+# Mostramos recomendaciones
+print(f'Recomendaciones para el usuario {user_id}:')
+for prediction in top_n[:10]:
+    print(f'Producto ID: {prediction.iid}, Calificación Estimada: {prediction.est}')
