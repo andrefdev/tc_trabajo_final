@@ -2,12 +2,9 @@ import pandas as pd
 import numpy as np
 import random
 import math
+import gzip
+import json
 from sympy import isprime, primitive_root
-
-from surprise import Dataset, Reader
-from surprise.model_selection import train_test_split
-from surprise import accuracy
-from surprise.prediction_algorithms.knns import KNNWithZScore
 
 
 # =======================ENCRIPTACION=======================
@@ -67,17 +64,28 @@ def homomorphic_addition(c1_1, c2_1, c1_2, c2_2, p):
 
 # =======================RECOMENDACIONES=======================
 
+# Nombre del archivo
+file_name = 'Magazine_Subscriptions.json.gz'
+
+# Abrir el archivo comprimido y leer el contenido JSON
+with gzip.open(file_name, 'rt', encoding='utf-8') as file:
+    _data = [json.loads(line) for line in file]
+
+data = pd.DataFrame(_data)
+
+# Convertir la lista de diccionarios a un DataFrame
+print(data.head)
+
+"""
 # DataFrame con datos de Amazon (Reemplazar datos)
 data = pd.DataFrame({
     'user_id': [1, 2, 3, 4, 5],
     'product_id': [101, 102, 103, 104, 105],
     'category': ['Electronics', 'Books', 'Products', 'Cleaning', 'Clothing'],
     'price': [100, 20, 120, 25, 50],
-    'rating': [5, 4, 3, 4, 5], # Los datos deben ser enteros para fin de nuestro esquema
+    'rating': [5, 4, 3, 4, 5], # Los datos de calculo deben ser enteros para fin de nuestro esquema
     'reviews': [10, 5, 12, 7, 8]
-})
-
-reader = Reader(rating_scale=(1, 5))
+})"""
 
 # Parámetros del criptosistema
 # Generar p y g
@@ -95,27 +103,55 @@ x1, x2 = encrypt(2, pk, p, g, q)
 print("####: ", decrypt(x1,x2, sk, p))
 """
 
+
 # cosine_similarity_homomorphic tiene un rango de [-1,1]
 def cosine_similarity_homomorphic(vector1, vector2, pk, p, g, sk, q):
     # Convertir las columnas 'rating' y 'reviews' en vectores encriptados
-    print(vector1['rating']) # 5.0
-    c1_1, c1_2 = encrypt(vector1['rating'], pk, p, g, q)
-    c2_1, c2_2 = encrypt(vector1['reviews'], pk, p, g, q)
+    # print(vector1['rating']) # 5.0
+    c1_1, c1_2 = encrypt(vector1['overall'], pk, p, g, q)
+    c2_1, c2_2 = encrypt(vector1['vote'], pk, p, g, q)
     # Tupla de tuplas que almacena el vector cifrado
     vector1_encrypted = (c1_1, c1_2), (c2_1, c2_2)
 
-    c1_1, c1_2 = encrypt(vector2['rating'], pk, p, g, q)
-    c2_1, c2_2 = encrypt(vector2['reviews'], pk, p, g, q)
+    """
+    c1_1 = vector1_encrypted[0][0]
+    c1_2 = vector1_encrypted[0][1]
+    c2_1 = vector1_encrypted[1][0]
+    c2_2 = vector1_encrypted[1][1]
+    """
+
+    c1_1, c1_2 = encrypt(vector2['overall'], pk, p, g, q)
+    c2_1, c2_2 = encrypt(vector2['vote'], pk, p, g, q)
     vector2_encrypted = (c1_1, c1_2), (c2_1, c2_2)
 
+    """
+    c1_1 = vector2_encrypted[0][0]
+    c1_2 = vector2_encrypted[0][1]
+    c2_1 = vector2_encrypted[1][0]
+    c2_2 = vector2_encrypted[1][1]
+    """
+
     # Calcular el producto escalar homomórfico
-    dot_product_1, dot_product_2 = homomorphic_addition(
-        vector1_encrypted[0][0] * vector2_encrypted[0][0],
-        vector1_encrypted[0][1] * vector2_encrypted[0][1],
-        vector1_encrypted[1][0] * vector2_encrypted[1][0],
-        vector1_encrypted[1][1] * vector2_encrypted[1][1],
-        p
-    )
+    # Dada una matriz A[i][j], B[i][j] dot_product_h1, dot_product_h2 representan la multiplicacion de los
+    # elementos de A[i][j] y B[i][j] donde
+    dot_product_h1, dot_product_h2 = homomorphic_addition(vector1_encrypted[0][0], vector1_encrypted[0][1],
+                                                          vector2_encrypted[0][0], vector2_encrypted[0][1], p)
+    dot_product_h3, dot_product_h4 = homomorphic_addition(vector1_encrypted[1][0], vector1_encrypted[1][1],
+                                                          vector2_encrypted[1][0], vector2_encrypted[1][1], p)
+
+    # Calculamos el producto punto
+    dot_product_decrypted = decrypt(dot_product_h1, dot_product_h2, sk, p) + decrypt(dot_product_h3, dot_product_h4, sk,
+                                                                                     p)
+    print("dot_product decrypted: ", dot_product_decrypted)
+
+    # Calculamos la magnitud del vector, primero necesitaremos elevar al cuadrado los componentes
+    prim_elem_cuadrado_vector1_1, prim_elem_cuadrado_vector1_2 = homomorphic_addition(vector1_encrypted[0][0],
+                                                                                      vector1_encrypted[0][1],
+                                                                                      vector1_encrypted[0][0],
+                                                                                      vector1_encrypted[0][1], p)
+    print("prim_elem_cuadrado: ", decrypt(prim_elem_cuadrado_vector1_1, prim_elem_cuadrado_vector1_2, sk, p))
+
+    print("la magnitud del vector1 decrypted: ", calculate_magnitude(vector1_encrypted, p))
 
     # Calcular las magnitudes homomórficas
     magnitude1_1, magnitude1_2 = homomorphic_addition(
@@ -133,25 +169,99 @@ def cosine_similarity_homomorphic(vector1, vector2, pk, p, g, sk, q):
         p
     )
 
-    magnitude1_decrypted = decrypt(magnitude1_1, magnitude1_2, sk, p)
     magnitude2_decrypted = decrypt(magnitude2_1, magnitude2_2, sk, p)
 
-    dot_product_decrypted = decrypt(dot_product_1, dot_product_2, sk, p)
+    # Calcular la similitud del coseno utilizando los valores descifrados
+    if magnitude1_decrypted == 0 or magnitude2_decrypted == 0:
+        return 0  # Evitar división por cero
+    else:
+        return dot_product_decrypted / (math.sqrt(magnitude1_decrypted) * math.sqrt(magnitude2_decrypted))
 
-    print(dot_product_decrypted)
 
-    return dot_product_decrypted / (math.sqrt(magnitude1_decrypted) * math.sqrt(magnitude2_decrypted))
+def calculate_homomorphic_cosine_similarity(data, pk, p, g, sk, q):
+    # Obtener una lista de vectores
+    vectors = [data.iloc[i] for i in range(len(data))]
+
+    similarities = []
+    for i in range(len(vectors)):
+        for j in range(i + 1, len(vectors)):
+            vector1 = vectors[i]
+            vector2 = vectors[j]
+
+            vector1_values = vector1[['overall', 'vote']].values
+            vector2_values = vector2[['overall', 'vote']].values
+            print("magnitud vector1: ", np.linalg.norm(vector1_values))
+
+            """
+            El producto punto (np.dot()) calcula el producto escalar entre dos vectores en un espacio
+            euclidiano, mientras que tu función homomorphic_addition() está realizando operaciones
+            específicas de cifrado homomórfico
+            """
+
+            # print("dot product: ", np.dot(vector1_values, vector2_values))
+
+            # Calcular la similitud del coseno homomórfico entre cada par de vectores
+            similarity = cosine_similarity_homomorphic(vector1, vector2, pk, p, g, sk, q)
+            similarities.append(similarity)
+
+    return similarities
 
 
-# Ejemplo de uso:
-_vector1 = data.iloc[0]  # Obtener la primera fila como _vector1
-_vector2 = data.iloc[1]  # Obtener la segunda fila como vector 2
-
-similarity = cosine_similarity_homomorphic(_vector1, _vector2, pk, p, g, sk, q)
+# Calculamos la similitud coseno homomórfica entre dos vectores de datos encriptados
+similarity = calculate_homomorphic_cosine_similarity(data, pk, p, g, sk, q)
 print("Similitud del coseno homomórfica:", similarity)
 
-# Valores de los vectores
-vector1_values = _vector1[['rating', 'reviews']].values
-vector2_values = _vector2[['rating', 'reviews']].values
 
-print("dot product: ", np.dot(vector1_values, vector2_values))
+# En la funcion predeciremos la calificacion del usuario para un árticulo
+def predict_rating(user_data, item, data, pk, p, g, sk, q):
+    # Calcular la similitud del usuario con cada usuario en el conjunto de datos
+    similarities = []
+    for i, row in data.iterrows():
+        # Calculamos la similitud coseno homomórfica entre el usuario dado y cada usuario en el conjunto de datos
+        similarity = cosine_similarity_homomorphic(user_data, row, pk, p, g, sk, q)
+        similarities.append(similarity)
+
+    # Agregar las similitudes al DataFrame
+    data['similarity'] = similarities
+
+    # Filtrar usuarios similares y que hayan calificado el ítem en cuestión
+    similar_users = data[(data['similarity'] > 0) & (data['product_id'] == item['product_id'])]
+
+    if len(similar_users) == 0:
+        return 0  # Si no hay usuarios similares que hayan calificado el ítem, devolver una calificación base
+
+    # Calcular la calificación ponderada promedio
+    # Iniciamos la suma ponderada
+    weighted_sum = 0
+    # Iniciamos la suma de similitudes
+    similarity_sum = 0
+    for i, row in similar_users.iterrows():
+        # Calculamos la suma ponderada de calificaciones y similitudes
+        weighted_sum += row['rating'] * row['similarity']
+        similarity_sum += row['similarity']
+
+    # Calculamos la calificación ponderada promedio, evitando la división por cero
+    predicted_rating = weighted_sum / similarity_sum if similarity_sum != 0 else 0
+    # Devolvemos la calificación ponderada promedio como la predicción final
+    return predicted_rating
+
+
+# El usuario para el que quieres hacer recomendaciones
+user_id = 1
+user_data = data[data['user_id'] == user_id]
+
+unrated_items = data[data['user_id'] != user_id]  # Ítems no calificados por el usuario objetivo
+
+# 3. Generar recomendaciones
+recommendations = []
+for i, row in unrated_items.iterrows():
+    predicted_rating = predict_rating(user_data, row, data, pk, p, g, sk, q)
+    recommendations.append((row['product_id'], predicted_rating))
+
+# Ordenar las recomendaciones por la calificación estimada
+sorted_recommendations = sorted(recommendations, key=lambda x: x[1], reverse=True)
+
+# Mostrar las mejores recomendaciones
+print(f'Recomendaciones para el usuario {user_id}:')
+for product_id, rating in sorted_recommendations[:10]:
+    print(f'Producto ID: {product_id}, Calificación Estimada: {rating}')
